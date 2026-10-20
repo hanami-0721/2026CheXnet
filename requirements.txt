@@ -1,0 +1,8 @@
+torch>=2.0
+torchvision>=0.15
+pandas>=1.5
+numpy>=1.23
+Pillow>=9.0
+tqdm>=4.64
+# 可选：使用 EfficientNet / ConvNeXt 等 backbone 时需要
+timm>=0.9
