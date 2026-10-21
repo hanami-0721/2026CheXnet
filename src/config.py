@@ -40,9 +40,13 @@ class Config:
 
     # 损失函数：bce（BCEWithLogits + pos_weight）/ asl（Asymmetric Loss）
     loss: str = "bce"
-    asl_gamma_neg: float = 4.0               # ASL 负样本 focusing
+    asl_gamma_neg: float = 4.0               # ASL 负样本 focusing（困难负样本挖掘强度）
     asl_gamma_pos: float = 1.0               # ASL 正样本 focusing
     asl_clip: float = 0.05                   # ASL 负样本 margin
+
+    # 少数类专项：类别平衡采样
+    sampler: str = "none"                    # none / balanced（类别平衡过采样）
+    sampler_boost: float = 1.0               # 采样加权强度（越大越偏向少数类）
 
     image_size: int = 512
     batch_size: int = 16

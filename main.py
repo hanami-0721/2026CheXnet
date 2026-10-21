@@ -22,12 +22,14 @@ import pandas as pd
 import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import WeightedRandomSampler
 
 from src.config import Config, CLASS_NAMES
 from src.utils import log, save_json, seed_everything
 from src.data import (
     build_labels,
     build_samples,
+    compute_study_weights,
     detect_label_format,
     find_col,
     load_label_df,
@@ -77,6 +79,10 @@ def parse_args() -> Config:
     p.add_argument("--asl_gamma_neg", type=float, default=4.0)
     p.add_argument("--asl_gamma_pos", type=float, default=1.0)
     p.add_argument("--asl_clip", type=float, default=0.05)
+    p.add_argument("--sampler", choices=["none", "balanced"], default="none",
+                   help="balanced=类别平衡过采样（缓解少数类）")
+    p.add_argument("--sampler_boost", type=float, default=1.0,
+                   help="采样加权强度，越大越偏向少数类")
     p.add_argument("--pool", choices=["mean", "max", "attn"], default="mean",
                    help="多图聚合方式：mean/max/attn（multi 模式用特征池化）")
     p.add_argument("--multi", action="store_true",
@@ -212,18 +218,31 @@ def _train_fold(cfg: Config, device, class_ids, train_labels, train_samples, tra
     train_label_lookup = {s: train_labels.loc[s].values for s in train_labels.index}
     train_study_images = {s: train_images[s] for s in train_labels.index}
 
+    # 少数类平衡采样（类别平衡过采样）
+    sampler = None
+    if cfg.sampler == "balanced":
+        study_w = compute_study_weights(train_labels, cfg.sampler_boost)
+        w_map = {s: float(w) for s, w in zip(train_labels.index, study_w)}
+        if multi:
+            study_list = sorted(train_study_images.keys())
+            weights = torch.tensor([w_map[s] for s in study_list], dtype=torch.float)
+        else:
+            weights = torch.tensor([w_map[s] for s, _ in train_samples], dtype=torch.float)
+        sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+        log(f"启用类别平衡采样（boost={cfg.sampler_boost}）")
+
     if multi:
         train_loader = make_study_loader(
             StudyDataset(train_study_images, train_label_lookup, class_ids,
                          cfg.image_size, train=True),
-            cfg.batch_size, shuffle=True, workers=cfg.workers)
+            cfg.batch_size, shuffle=True, workers=cfg.workers, sampler=sampler)
         model = MultiImageModel(cfg.backbone, len(class_ids), pretrained=cfg.pretrained,
                                 dropout=cfg.dropout, pool=cfg.pool).to(device)
     else:
         train_loader = make_loader(
             ChestXrayDataset(train_samples, train_label_lookup, class_ids,
                              cfg.image_size, train=True),
-            cfg.batch_size, shuffle=True, workers=cfg.workers)
+            cfg.batch_size, shuffle=True, workers=cfg.workers, sampler=sampler)
         model = build_model(cfg.backbone, len(class_ids), pretrained=cfg.pretrained,
                             dropout=cfg.dropout).to(device)
 

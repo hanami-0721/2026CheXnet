@@ -168,21 +168,30 @@ python main.py --mode train --train_csv ./cxr_first/train.csv \
 | macro F1 低但 AUC 高 | 阈值不合适 | 验证集上对每类单独搜阈值 |
 
 > 本 baseline 的定位是「快速得到可复现的起点分数」，先把这一版跑通、记录 `val_study_macro_auc` 作为基准，再逐项改进。 
+# baseline
+0.7934
 
-# 第一版改动
-Asymmetric Loss（--loss asl）—— 多标签不均衡的业界标准方案，比 pos_weight 更能救少数类
-每类最优阈值（--tune_threshold，默认开）—— 训练后在验证集上对每类搜阈值，直接提升 macro F1，并回写到 best_model.pt
-Dropout 0.2 + weight_decay 5e-4 + 加强增强 —— 缓解过拟合
-早停 patience 收紧到 3 —— 避免峰值后继续过拟合
+# 第一版优化
+1.Asymmetric Loss（--loss asl）—— 多标签不均衡的业界标准方案，比 pos_weight 更能救少数类
+2.每类最优阈值（--tune_threshold，默认开）—— 训练后在验证集上对每类搜阈值，直接提升 macro F1，并回写到 best_model.pt
+3.Dropout 0.2 + weight_decay 5e-4 + 加强增强 —— 缓解过拟合
+4.早停 patience 收紧到 3 —— 避免峰值后继续过拟合
 推理输出 Gate 列 —— 用训练时搜出的每类阈值（提交格式允许的自定义阈值）
+0.7967
 
 # 第二轮优化
-1. TTA（测试时增强） —— 已默认开启（--no_tta 可关），预测时原图 + 水平翻转取平均，通常 +0.3~0.5% AUC。
-
-2. 多图 Study 联合建模（--multi）—— 这是核心改动：
+1.TTA（测试时增强） —— 已默认开启（--no_tta 可关），预测时原图 + 水平翻转取平均，通常 +0.3~0.5% AUC。
+2.多图 Study 联合建模（--multi）—— 这是核心改动：
+0.7879 没提升
 
 # 第三轮改动
-基座模型改为efficientnet_b3，注意到densenet121ASL backbone 不同、错误不相关，集成收益最大）
+重新训练efficientnet_b3与densenet121集成（ASL backbone 不同、错误不相关，集成收益最大）
+0.8042 
 
 # 第4轮改动
-5折交叉验证
+densenet121 5折交叉验证+集成
+0.8058
+
+# 第五轮改动
+densenet121+ efficientnet_b3 双模型集成，分别交叉验证+困难样本挖掘+少数类专项
+（efficientnet_b3过拟合崩了，进行消融实验）

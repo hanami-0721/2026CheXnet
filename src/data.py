@@ -120,6 +120,27 @@ def build_labels(df: pd.DataFrame, study_col: str, class_col: str, class_ids: Li
     return label_df.astype(np.float32)
 
 
+def compute_study_weights(labels: pd.DataFrame, boost: float = 1.0) -> np.ndarray:
+    """计算每个 Study 的采样权重，用于少数类过采样。
+
+    weights[i] = 1 + boost * Σ_c (n / pos_c) * y_ic
+    - n / pos_c 是类别 c 的「倒数正样本占比」，少数类权重高（如 class 1 约占 30）
+    - boost 控制偏向少数类的强度，越大越偏向少数类
+
+    用于 torch WeightedRandomSampler：包含少数类的 Study 会被重复采样，
+    提高少数类正样本在 batch 里的占比。
+    """
+    n = len(labels)
+    pos = labels.values.sum(axis=0)
+    weights = np.ones(n, dtype=np.float32)
+    for c in range(labels.shape[1]):
+        if pos[c] == 0:
+            continue
+        class_w = n / max(pos[c], 1)
+        weights += boost * class_w * labels.values[:, c].astype(np.float32)
+    return weights
+
+
 # --------------------------------------------------------------------------- #
 # 图片路径解析
 # --------------------------------------------------------------------------- #
@@ -256,11 +277,12 @@ class ChestXrayDataset:
         return x, y, study_id
 
 
-def make_loader(dataset: ChestXrayDataset, batch_size: int, shuffle: bool, workers: int):
+def make_loader(dataset: ChestXrayDataset, batch_size: int, shuffle: bool, workers: int,
+                sampler=None):
     from torch.utils.data import DataLoader
 
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
-                      num_workers=workers, pin_memory=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=(shuffle and sampler is None),
+                      sampler=sampler, num_workers=workers, pin_memory=True)
 
 
 def build_samples(studies: List[str], images: Dict[str, List[str]]) -> List[Tuple[str, str]]:
@@ -330,8 +352,10 @@ def study_collate(batch):
     return all_imgs, sizes, ys, sids
 
 
-def make_study_loader(dataset: StudyDataset, batch_size: int, shuffle: bool, workers: int):
+def make_study_loader(dataset: StudyDataset, batch_size: int, shuffle: bool, workers: int,
+                      sampler=None):
     from torch.utils.data import DataLoader
 
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
-                      num_workers=workers, pin_memory=True, collate_fn=study_collate)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=(shuffle and sampler is None),
+                      sampler=sampler, num_workers=workers, pin_memory=True,
+                      collate_fn=study_collate)
